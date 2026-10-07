@@ -1,0 +1,576 @@
+// WasteWise — predictive campus food & waste management platform
+// Relational schema (SQLite via Prisma). String enums are used because SQLite
+// has no native enum type; allowed values are enforced in the app layer (zod)
+// and documented inline.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// ---- Identity & access --------------------------------------------------
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  /// ADMIN | MESS_MANAGER | WASTE_MANAGER
+  role         String   @default("MESS_MANAGER")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// ---- Students & attendance ---------------------------------------------
+model Student {
+  id         String   @id @default(cuid())
+  studentId  String   @unique
+  name       String
+  department String
+  year       Int
+  /// HOSTEL | DAY_SCHOLAR
+  residence  String   @default("HOSTEL")
+  hostel     String?
+  email      String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  attendances Attendance[]
+
+  @@index([department])
+  @@index([residence])
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  date      DateTime // normalized to local midnight
+  studentId String
+  present   Boolean  @default(false)
+  location  String?
+  breakfast Boolean  @default(false)
+  lunch     Boolean  @default(false)
+  snacks    Boolean  @default(false)
+  dinner    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+  @@index([date])
+}
+
+/// ---- Menu, dishes & recipes --------------------------------------------
+model Dish {
+  id                     String   @id @default(cuid())
+  name                   String   @unique
+  /// MAIN | SIDE | DESSERT | BEVERAGE | BREAKFAST
+  category               String   @default("MAIN")
+  description            String?
+  portionSizeG           Float    @default(150)
+  estCostPerServing      Float    @default(10)
+  /// rolling average servings per meal occurrence
+  historicalConsumption  Float    @default(0)
+  /// rolling average dish-level plate waste percent
+  historicalWastePct     Float    @default(0)
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  menuItems  MenuItem[]
+  recipe     Recipe?
+  wasteRecords WasteRecord[]
+  consumptions MealConsumption[]
+}
+
+model Recipe {
+  id           String   @id @default(cuid())
+  dishId       String   @unique
+  instructions String?
+  standardYield Int     @default(1) // servings the ingredient list below produces
+  /// trimming / peeling / washing loss before cooking (%)
+  prepLossPct  Float    @default(0)
+  /// moisture loss or absorption during cooking (%)
+  cookLossPct  Float    @default(0)
+  /// true when an exact campus recipe was unavailable and a standardized demo recipe is used
+  demoAssumption String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dish  Dish               @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  items RecipeIngredient[]
+}
+
+model RecipeIngredient {
+  id                  String @id @default(cuid())
+  recipeId            String
+  ingredientId        String
+  quantityPerServing  Float
+  unit                String
+  notes               String?
+
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeId, ingredientId])
+}
+
+model Menu {
+  id        String   @id @default(cuid())
+  name      String
+  date      DateTime
+  /// BREAKFAST | LUNCH | SNACKS | DINNER
+  mealType  String
+  published Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items MenuItem[]
+  meals Meal[]
+
+  @@unique([date, mealType])
+  @@index([date])
+}
+
+model MenuItem {
+  id     String @id @default(cuid())
+  menuId String
+  dishId String
+
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  dish Dish @relation(fields: [dishId], references: [id])
+
+  @@unique([menuId, dishId])
+}
+
+/// ---- Meals, predictions & consumption ----------------------------------
+model Meal {
+  id                 String   @id @default(cuid())
+  date               DateTime
+  mealType           String
+  menuId             String?
+  expectedStudents   Int      @default(0)
+  predictedConsumption Int?
+  recommendedPrep    Int?
+  actualPrep         Int?
+  actualConsumption  Int?
+  unservedKg         Float?
+  plateWasteKg       Float?
+  totalWasteKg       Float?
+  /// PLANNED | PREPARED | COMPLETED
+  status             String   @default("PLANNED")
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  menu        Menu?             @relation(fields: [menuId], references: [id])
+  consumptions MealConsumption[]
+  wasteRecords WasteRecord[]
+
+  @@unique([date, mealType])
+  @@index([date])
+}
+
+model MealPrediction {
+  id                    String   @id @default(cuid())
+  date                  DateTime
+  mealType              String
+  predictedConsumption  Int
+  recommendedPrep       Int
+  rangeLow              Int
+  rangeHigh             Int
+  confidence            Float
+  actualConsumption     Int?
+  /// actual - predicted (signed)
+  error                 Int?
+  /// JSON snapshot of the inputs used (attendance, day factor, trend...)
+  inputs                String
+  model                 String   @default("weighted-history-v1")
+  createdAt             DateTime @default(now())
+
+  @@index([date])
+  @@unique([date, mealType])
+}
+
+model MealConsumption {
+  id             String  @id @default(cuid())
+  mealId         String
+  dishId         String
+  servingsServed Int     @default(0)
+  servingsConsumed Int   @default(0)
+  leftoverKg     Float   @default(0)
+  wastePct       Float   @default(0)
+  createdAt      DateTime @default(now())
+
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  dish Dish @relation(fields: [dishId], references: [id])
+
+  @@unique([mealId, dishId])
+}
+
+/// ---- Inventory & procurement -------------------------------------------
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  contactName   String?
+  phone         String?
+  email         String?
+  leadTimeDays  Int      @default(2)
+  rating        Float    @default(4)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  ingredients    Ingredient[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Ingredient {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  category      String   @default("GRAIN")
+  unit          String   @default("kg")
+  minStock      Float    @default(0)
+  maxStock      Float    @default(100)
+  shelfLifeDays Int      @default(30)
+  avgDailyUsage Float    @default(0)
+  costPerUnit   Float    @default(0)
+  supplierId    String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  supplier       Supplier?              @relation(fields: [supplierId], references: [id])
+  inventory      InventoryItem?
+  transactions   InventoryTransaction[]
+  recipeItems    RecipeIngredient[]
+  recommendations PurchaseRecommendation[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([category])
+}
+
+/// One row per ingredient = current on-hand stock.
+model InventoryItem {
+  id              String   @id @default(cuid())
+  ingredientId    String   @unique
+  quantity        Float    @default(0)
+  location        String   @default("Main Store")
+  lastRestockedAt DateTime?
+  updatedAt       DateTime @updatedAt
+
+  ingredient   Ingredient             @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  transactions InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id           String   @id @default(cuid())
+  ingredientId String
+  inventoryId  String?
+  /// RECEIPT | CONSUMPTION | ADJUSTMENT | WASTE
+  type         String
+  quantity     Float // signed: + increases stock, - decreases
+  balanceAfter Float?
+  note         String?
+  refType      String?
+  refId        String?
+  createdAt    DateTime @default(now())
+
+  ingredient Ingredient     @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  inventory  InventoryItem? @relation(fields: [inventoryId], references: [id])
+
+  @@index([ingredientId, createdAt])
+}
+
+model PurchaseRecommendation {
+  id             String   @id @default(cuid())
+  date           DateTime
+  ingredientId   String
+  requiredQty    Float
+  currentStock   Float
+  safetyStock    Float    @default(0)
+  recommendedQty Float
+  reason         String
+  /// PENDING | APPROVED | MODIFIED | REJECTED | CONVERTED
+  status         String   @default("PENDING")
+  finalQty       Float?
+  decidedBy      String?
+  decidedAt      DateTime?
+  purchaseOrderId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@index([date])
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  supplierId  String?
+  ingredientId String
+  quantity    Float
+  unitCost    Float
+  totalCost   Float
+  /// DRAFT | ORDERED | RECEIVED | CANCELLED
+  status      String   @default("ORDERED")
+  orderedAt   DateTime @default(now())
+  expectedAt  DateTime?
+  receivedQty Float?
+  receivedAt  DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  supplier   Supplier?  @relation(fields: [supplierId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@index([status])
+}
+
+/// ---- Waste --------------------------------------------------------------
+model WasteReason {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  label     String
+  /// CAUSE | CONTRIBUTOR
+  category  String   @default("CAUSE")
+  active    Boolean  @default(true)
+
+  wasteRecords WasteRecord[]
+}
+
+model WasteRecord {
+  id        String   @id @default(cuid())
+  date      DateTime
+  mealType  String?
+  mealId    String?
+  location  String   @default("Main Mess")
+  dishId    String?
+  /// FOOD | RECYCLABLE | REJECT
+  category  String
+  /// PLATE | UNSERVED | KITCHEN | PLASTIC | PAPER | CARDBOARD | METAL | CONTAMINATED
+  subCategory String?
+  /// PLATE | UNSERVED | KITCHEN | RECYCLABLE | REJECT | OTHER
+  source    String   @default("OTHER")
+  weightKg  Float
+  reasonId  String?
+  /// COMPOST | BIOGAS | RECYCLE | DISPOSAL | PENDING
+  treatmentDestination String @default("PENDING")
+  notes     String?
+  recordedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  meal   Meal?       @relation(fields: [mealId], references: [id], onDelete: SetNull)
+  dish   Dish?       @relation(fields: [dishId], references: [id])
+  reason WasteReason? @relation(fields: [reasonId], references: [id])
+
+  @@index([date])
+  @@index([category])
+}
+
+model WastePrediction {
+  id         String   @id @default(cuid())
+  date       DateTime
+  mealType   String
+  expectedKg Float
+  rangeLow   Float
+  rangeHigh  Float
+  actualKg   Float?
+  variancePct Float?
+  model      String   @default("waste-baseline-v1")
+  createdAt  DateTime @default(now())
+
+  @@unique([date, mealType])
+  @@index([date])
+}
+
+model WasteAnomaly {
+  id          String   @id @default(cuid())
+  date        DateTime
+  mealType    String
+  expectedKg  Float
+  actualKg    Float
+  variancePct Float
+  /// LOW | MEDIUM | HIGH
+  severity    String
+  /// OPEN | INVESTIGATING | RESOLVED | IGNORED
+  status      String   @default("OPEN")
+  contributors String // JSON array of {factor, detail, weight}
+  summary     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  correctiveActions CorrectiveAction[]
+
+  @@index([date])
+}
+
+model CorrectiveAction {
+  id         String   @id @default(cuid())
+  anomalyId  String
+  causeCode  String
+  action     String
+  notes      String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  anomaly WasteAnomaly @relation(fields: [anomalyId], references: [id], onDelete: Cascade)
+}
+
+/// ---- Treatment & reuse --------------------------------------------------
+model TreatmentBatch {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  /// COMPOSTING | ANAEROBIC_DIGESTION | RECYCLING
+  method             String
+  wasteCategory      String   @default("FOOD")
+  inputKg            Float
+  startDate          DateTime
+  endDate            DateTime?
+  /// PLANNED | ACTIVE | COMPLETED
+  status             String   @default("ACTIVE")
+  expectedOutputLow  Float?
+  expectedOutputHigh Float?
+  outputKg           Float?
+  destination        String?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  outputs TreatmentOutput[]
+
+  @@index([status])
+}
+
+model TreatmentOutput {
+  id              String   @id @default(cuid())
+  batchId         String
+  /// COMPOST | BIOGAS | DIGESTATE
+  type            String
+  unit            String   @default("kg")
+  quantity        Float
+  reusedQuantity  Float    @default(0)
+  reuseDestination String?
+  quality         String?
+  createdAt       DateTime @default(now())
+
+  batch        TreatmentBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  reuseRecords ReuseRecord[]
+}
+
+model ReuseRecord {
+  id          String   @id @default(cuid())
+  outputId    String
+  destination String
+  quantity    Float
+  date        DateTime
+  note        String?
+  createdAt   DateTime @default(now())
+
+  output TreatmentOutput @relation(fields: [outputId], references: [id], onDelete: Cascade)
+}
+
+/// ---- Ops ----------------------------------------------------------------
+model Alert {
+  id         String   @id @default(cuid())
+  /// HIGH_WASTE | WASTE_ANOMALY | LOW_INVENTORY | OVERSTOCK | EXPIRY | PREDICTION_DEVIATION | HIGH_WASTE_DISH | ATTENDANCE_ANOMALY | BATCH_COMPLETE
+  type       String
+  /// INFO | WARNING | CRITICAL | SUCCESS
+  severity   String   @default("WARNING")
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  /// UNREAD | READ | RESOLVED | IGNORED
+  status     String   @default("UNREAD")
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  @@index([status])
+}
+
+/// Physical WasteWise Station (future hardware integration point).
+model Station {
+  id              String   @id @default(cuid())
+  name            String
+  location        String
+  /// ONLINE | IDLE | MAINTENANCE
+  status          String   @default("IDLE")
+  capacityKg      Float    @default(200)
+  currentWeightKg Float    @default(0)
+  organicKg       Float    @default(0)
+  recyclableKg    Float    @default(0)
+  rejectKg        Float    @default(0)
+  lastCollectionAt DateTime?
+  /// device/hardware identifier for future sensor ingestion
+  deviceId        String?
+  updatedAt       DateTime @updatedAt
+}
+
+/// ---- Machine-learning layer --------------------------------------------
+/// Trained regression models are persisted as JSON artifacts so the app can
+/// retrain and version them as campus data accumulates.
+model MlModel {
+  id           String   @id @default(cuid())
+  /// DEMAND | WASTE
+  kind         String
+  /// LINEAR | RANDOM_FOREST
+  algorithm    String
+  version      String
+  featureNames String // JSON array of feature names, in order
+  artifact     String // JSON: coefficients (LINEAR) or trees (RANDOM_FOREST)
+  metrics      String // JSON: mae, rmse, r2, mape, trainN, testN
+  trainN       Int
+  testN        Int
+  /// demo | live — distinguishes the seeded demo dataset from real campus data
+  dataSource   String   @default("demo")
+  isActive     Boolean  @default(false)
+  notes        String?
+  trainedAt    DateTime @default(now())
+
+  predictions MlPrediction[]
+
+  @@index([kind, isActive])
+}
+
+/// A single stored regression prediction: input features, predicted value,
+/// actual value, error, model version and timestamp — the learning record.
+model MlPrediction {
+  id         String   @id @default(cuid())
+  modelId    String
+  /// DEMAND | WASTE
+  kind       String
+  date       DateTime
+  mealType   String
+  features   String // JSON feature vector
+  predicted  Float
+  rangeLow   Float
+  rangeHigh  Float
+  confidence Float    @default(0.8)
+  actual     Float?
+  error      Float?
+  createdAt  DateTime @default(now())
+  scoredAt   DateTime?
+
+  model MlModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([kind, date, mealType])
+  @@index([kind, date])
+}
+
+model CampusSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  label     String
+  category  String   @default("general")
+  /// NUMBER | TEXT | BOOLEAN | JSON
+  type      String   @default("TEXT")
+  updatedAt DateTime @updatedAt
+}

@@ -1,26 +1,112 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Sustainability-forward brand green */
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-200: #bbf7d0;
+  --color-brand-300: #86efac;
+  --color-brand-400: #4ade80;
+  --color-brand-500: #22c55e;
+  --color-brand-600: #16a34a;
+  --color-brand-700: #15803d;
+  --color-brand-800: #166534;
+  --color-brand-900: #14532d;
+
+  --color-ink-50: #f8faf9;
+  --color-ink-100: #f1f4f2;
+  --color-ink-200: #e3e8e5;
+  --color-ink-300: #cdd5d0;
+  --color-ink-400: #9aa6a0;
+  --color-ink-500: #6b7772;
+  --color-ink-600: #4b5652;
+  --color-ink-700: #343d3a;
+  --color-ink-800: #1f2724;
+  --color-ink-900: #121816;
+
+  --radius-card: 1rem;
+
+  /* Elevation. White cards sit on a tinted canvas, so a real shadow is what
+     separates them from the page — the previous 4%-opacity shadow was invisible. */
+  --shadow-card: 0 1px 2px rgba(16, 24, 20, 0.05), 0 6px 16px -8px rgba(16, 24, 20, 0.14);
+  --shadow-raised: 0 2px 4px rgba(16, 24, 20, 0.06), 0 14px 30px -12px rgba(16, 24, 20, 0.2);
+  --shadow-pop: 0 20px 50px -18px rgba(16, 24, 20, 0.35);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Tinted canvas: cards are pure white, so the page must be visibly darker for
+     the card boundaries to read at all. */
+  --background: #edf1ef;
+  --foreground: var(--color-ink-900);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  border-color: var(--color-ink-200);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--background);
+  background-image: radial-gradient(70rem 26rem at 50% -12rem, rgba(22, 163, 74, 0.09), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* Slim, unobtrusive scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-300);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-400);
+  background-clip: content-box;
+}
+
+@keyframes ww-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ww-enter {
+  animation: ww-fade-up 0.18s ease-out;
+}
+
+.ww-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(20, 83, 45, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 83, 45, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Focus ring shared by every interactive control. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
 }

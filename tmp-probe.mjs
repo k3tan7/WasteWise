@@ -1,0 +1,15 @@
+import { PrismaClient } from "@prisma/client";
+const p = new PrismaClient();
+const a = await p.attendance.aggregate({ _min: { date: true }, _max: { date: true }, _count: true });
+const w = await p.wasteRecord.aggregate({ _min: { date: true }, _max: { date: true }, _count: true });
+const m = await p.meal.aggregate({ _min: { date: true }, _max: { date: true }, _count: true });
+const wp = await p.wastePrediction.aggregate({ _min: { date: true }, _max: { date: true }, _count: true });
+const dp = await p.mealPrediction.aggregate({ _min: { date: true }, _max: { date: true }, _count: true });
+console.log("attendance", a);
+console.log("waste", w);
+console.log("meals", m);
+console.log("wastePrediction", wp);
+console.log("demandPrediction", dp);
+console.log("students", await p.student.count());
+console.log("today", new Date().toDateString());
+await p.$disconnect();
