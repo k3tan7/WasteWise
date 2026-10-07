@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Leaf, ShieldCheck, TrendingUp, Recycle } from "lucide-react";
 import { loginAction } from "@/actions/auth";
 import { getSession } from "@/lib/auth";
-import { Button, Field, Input } from "@/components/ui";
+import { Field, Input } from "@/components/ui";
+import { SubmitButton } from "@/components/form-ui";
 
 export const metadata = { title: "Sign in" };
 
@@ -82,9 +83,12 @@ export default async function LoginPage({
             <Field label="Password">
               <Input name="password" type="password" required placeholder="••••••••" defaultValue="admin123" />
             </Field>
-            <Button type="submit" className="w-full" size="lg">
+            <SubmitButton className="w-full" size="lg" pendingLabel="Signing in…">
               Sign in
-            </Button>
+            </SubmitButton>
+            <p className="text-center text-[11px] text-ink-400">
+              First sign-in can take a few seconds while the server wakes up.
+            </p>
           </form>
 
           <div className="mt-6 rounded-xl border border-ink-200 bg-white p-3">
